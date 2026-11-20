@@ -96,7 +96,7 @@ def main():
             fd = os.open(f"/proc/{pid}/mem", os.O_RDONLY)
         except OSError:
             continue
-        with fd:
+        try:
             for start, end in rw_regions(pid):
                 scanned += 1
                 for blob in candidates_in(read_region(fd, start, end)):
@@ -115,6 +115,8 @@ def main():
                         "tail": blob[-20:].decode("latin1").strip(),
                     })
                     print(f"  candidate: pid={pid}({comm(pid)}) bytes={len(blob)} sha256={sha[:16]}...")
+        finally:
+            os.close(fd)
     with open("sim-recovered/scan.json", "w") as f:
         json.dump({"regions_scanned": scanned, "n_unique": len(meta), "candidates": meta}, f, indent=2)
     os.chmod("sim-recovered/scan.json", 0o644)
